@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 
 namespace TimerLib
@@ -53,6 +53,11 @@ namespace TimerLib
         /// </summary>
         void Stop();
 
-        #endregion
-    }
+		/// <summary>
+		/// タイマー再起動
+		/// </summary>
+		void Restart();
+
+		#endregion
+	}
 }

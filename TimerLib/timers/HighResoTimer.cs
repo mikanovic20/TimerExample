@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -244,6 +244,15 @@ namespace TimerLib.timers
             }
         }
 
-        #endregion
-    }
+		/// <summary>
+		/// タイマー再起動
+		/// </summary>
+		public void Restart() {
+
+			Stop();
+			Start();
+		}
+
+		#endregion
+	}
 }
