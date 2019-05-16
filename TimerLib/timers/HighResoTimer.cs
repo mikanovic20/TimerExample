@@ -58,8 +58,13 @@ namespace TimerLib.timers
         /// <summary>
         /// タスクキャンセル用トークンソース
         /// </summary>
+        private CancellationTokenSource SyncTokenSource {
+            get { lock ( _lockOfTokenSource ) { return _tokenSource; } }
+            set { lock ( _lockOfTokenSource ) { _tokenSource = value; } }
+        }
         private CancellationTokenSource _tokenSource;
-        
+        private readonly object _lockOfTokenSource = new object();
+
         #endregion
 
         #region Properties
@@ -143,8 +148,15 @@ namespace TimerLib.timers
         /// </summary>
         public void Start()
         {
-            if (_tokenSource == null) _tokenSource = new CancellationTokenSource();
-            var token = _tokenSource.Token;
+            var token = default( CancellationToken );
+
+            lock ( _lockOfTokenSource ) {
+                if ( _tokenSource == null || _tokenSource.IsCancellationRequested ) {
+                    _tokenSource?.Dispose();
+                    _tokenSource = new CancellationTokenSource();
+                }
+                token = _tokenSource.Token;
+            }
 
             // タスク生成(スレッドプールから取得)
             Task.Factory.StartNew(() =>
@@ -160,7 +172,9 @@ namespace TimerLib.timers
                     _stopwatch.Start();
 
                     // キャンセル要求チェック
-                    if (_tokenSource.IsCancellationRequested) return;
+                    if ( SyncTokenSource?.IsCancellationRequested ?? true ) {
+                        return;
+                    }
 
                     // 経過時間のチェック
                     while (_stopwatch.Elapsed < TimeSpan.FromMilliseconds(Interval - MSEC_FOR_DELAY))
@@ -169,39 +183,52 @@ namespace TimerLib.timers
                         Thread.Sleep(TIME_CHECK_INTERVAL);
 
                         // キャンセル要求チェック
-                        if (_tokenSource.IsCancellationRequested) return;
+                        if ( SyncTokenSource?.IsCancellationRequested ?? true ) {
+                            return;
+                        }
                     }
 
                     // ストップウォッチ停止
                     _stopwatch.Stop();
 
                     // キャンセル要求チェック
-                    if (_tokenSource.IsCancellationRequested) return;
+                    if ( SyncTokenSource?.IsCancellationRequested ?? true ) {
+                        return;
+                    }
 
                     // Tickイベント発行
                     Tick(this, _stopwatch.Elapsed);
 
                     // キャンセル要求チェック
-                    if (_tokenSource.IsCancellationRequested) return;
+                    if ( SyncTokenSource?.IsCancellationRequested ?? true ) {
+                        return;
+                    }
                 }
 
-            }, token).ContinueWith(t =>
+            }, token).ContinueWith(task =>
             {
                 //
                 // タスク完了後継続処理
                 // (キャンセル時)
                 //
+                if ( task.IsCanceled ) {
 
-                // トークンソースの解放
-                _tokenSource.Dispose();
-                _tokenSource = null;
+                    lock ( _lockOfTokenSource ) {
 
-                if (_stopwatch != null && _stopwatch.IsRunning)
-                {
-                    // 念のためストップウォッチ停止
-                    _stopwatch.Stop();
+                        if ( _tokenSource != null &&
+                             _tokenSource.IsCancellationRequested ) {
+                            // トークンソースの解放
+                            _tokenSource.Dispose();
+                            _tokenSource = null;
+                        }
+
+                        if ( _stopwatch != null && _stopwatch.IsRunning ) {
+                            // 念のためストップウォッチ停止
+                            _stopwatch.Stop();
+                        }
+                    }
                 }
-            });
+            } );
         }
 
         /// <summary>
@@ -209,8 +236,12 @@ namespace TimerLib.timers
         /// </summary>
         public void Stop()
         {
-            // タスクキャンセル要求
-            if (_tokenSource != null) _tokenSource.Cancel();
+            lock ( _lockOfTokenSource ) {
+                // タスクキャンセル要求
+                if ( SyncTokenSource != null ) {
+                    SyncTokenSource.Cancel();
+                }
+            }
         }
 
         #endregion
