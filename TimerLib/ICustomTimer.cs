@@ -3,55 +3,55 @@ using System.Threading;
 
 namespace TimerLib
 {
-    /// <summary>
-    /// カスタムタイマーインタフェース
-    /// </summary>
-    public interface ICustomTimer
-    {
-        #region Events
+	/// <summary>
+	/// カスタムタイマーインタフェース
+	/// </summary>
+	public interface ICustomTimer
+	{
+		#region Events
 
-        /// <summary>
-        /// Tickイベント
-        /// </summary>
-        event Action<object, TimeSpan> Tick;
+		/// <summary>
+		/// Tickイベント
+		/// </summary>
+		event Action<object, TimeSpan> Tick;
 
-        #endregion
+		#endregion
 
-        #region Properties
+		#region Properties
 
-        /// <summary>
-        /// タイマーID
-        /// </summary>
-        string Id { get; set; }
+		/// <summary>
+		/// タイマーID
+		/// </summary>
+		string Id { get; set; }
 
-        /// <summary>
-        /// タイマーインターバル
-        /// </summary>
-        int Interval { get; set; }
+		/// <summary>
+		/// タイマーインターバル
+		/// </summary>
+		int Interval { get; set; }
 
-        /// <summary>
-        /// PCが高分解能タイマーを使用しているか
-        /// </summary>
-        bool UseHighReso { get; }
+		/// <summary>
+		/// PCが高分解能タイマーを使用しているか
+		/// </summary>
+		bool UseHighReso { get; }
 
-        /// <summary>
-        /// タイマーのタスク優先度
-        /// </summary>
-        ThreadPriority Priority { get; set; }
+		/// <summary>
+		/// タイマーのタスク優先度
+		/// </summary>
+		ThreadPriority Priority { get; set; }
 
-        #endregion
+		#endregion
 
-        #region Public Methods
+		#region Public Methods
 
-        /// <summary>
-        /// タイマー開始
-        /// </summary>
-        void Start();
+		/// <summary>
+		/// タイマー開始
+		/// </summary>
+		void Start();
 
-        /// <summary>
-        /// タイマー停止
-        /// </summary>
-        void Stop();
+		/// <summary>
+		/// タイマー停止
+		/// </summary>
+		void Stop();
 
 		/// <summary>
 		/// タイマー再起動

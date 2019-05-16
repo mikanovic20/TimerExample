@@ -1,175 +1,172 @@
-﻿using System;
-using System.Threading;
+using System;
 using System.Diagnostics;
+using System.Threading;
 
 namespace TimerLib.timers
 {
-    using ThTimer = System.Threading.Timer;
+	using ThTimer = System.Threading.Timer;
 
-    /// <summary>
-    /// System.Threading.Timerのラップタイマー
-    /// </summary>
-    internal class ThreadingTimer : ICustomTimer
-    {
-        #region Constants
+	/// <summary>
+	/// System.Threading.Timerのラップタイマー
+	/// </summary>
+	internal class ThreadingTimer : ICustomTimer
+	{
+		#region Constants
 
-        /// <summary>
-        /// スレッドプールに生成しておくスレッド数
-        /// </summary>
-        /// <remarks>
-        /// ※これにより複数タイマー生成、
-        /// 　起動時のタスク生成が軽くなる
-        /// </remarks>
-        private static readonly int DEFAULT_THREAD_NUM = 8;
+		/// <summary>
+		/// スレッドプールに生成しておくスレッド数
+		/// </summary>
+		/// <remarks>
+		/// ※これにより複数タイマー生成、
+		/// 　起動時のタスク生成が軽くなる
+		/// </remarks>
+		private static readonly int DEFAULT_THREAD_NUM = 8;
 
-        #endregion
+		#endregion
 
-        #region Events
+		#region Events
 
-        /// <summary>
-        /// Tickイベント
-        /// </summary>
-        public event Action<object, TimeSpan> Tick = (sender, elapsed) => { };
+		/// <summary>
+		/// Tickイベント
+		/// </summary>
+		public event Action<object, TimeSpan> Tick = ( sender, elapsed ) => { };
 
-        #endregion
+		#endregion
 
 
-        #region Fields
+		#region Fields
 
-        /// <summary>
-        /// 内部タイマーオブジェクト
-        /// </summary>
-        private ThTimer _timer;
+		/// <summary>
+		/// 内部タイマーオブジェクト
+		/// </summary>
+		private ThTimer _timer;
 
-        /// <summary>
-        /// 内部Stopwatchオブジェクト
-        /// </summary>
-        private Stopwatch _stopwatch;
+		/// <summary>
+		/// 内部Stopwatchオブジェクト
+		/// </summary>
+		private Stopwatch _stopwatch;
 
-        /// <summary>
-        /// タイマー動作中かどうか
-        /// </summary>
-        private bool _isRunning;
+		/// <summary>
+		/// タイマー動作中かどうか
+		/// </summary>
+		private bool _isRunning;
 
-        #endregion
+		#endregion
 
-        #region Properties
+		#region Properties
 
-        /// <summary>
-        /// タイマーID
-        /// </summary>
-        public string Id { get; set; }
+		/// <summary>
+		/// タイマーID
+		/// </summary>
+		public string Id { get; set; }
 
-        /// <summary>
-        /// タイマーインターバル
-        /// </summary>
-        public int Interval 
-        {
-            get { return _interval; } 
-            set
-            {
-                _interval = value;
-                if (_timer != null && _isRunning)
-                {
-                    _timer.Change(0, _interval);
-                }
-            } 
-        }
-        private int _interval;
+		/// <summary>
+		/// タイマーインターバル
+		/// </summary>
+		public int Interval {
+			get => _interval;
+			set {
+				_interval = value;
+				if ( _timer != null && _isRunning ) {
+					_timer.Change( 0, _interval );
+				}
+			}
+		}
+		private int _interval;
 
-        /// <summary>
-        /// PCが高分解能タイマーを使用しているか
-        /// </summary>
-        public bool UseHighReso { get { return false; } }
+		/// <summary>
+		/// PCが高分解能タイマーを使用しているか
+		/// </summary>
+		public bool UseHighReso => false;
 
-        /// <summary>
-        /// タイマーのタスク優先度
-        /// </summary>
-        /// <remarks>
-        /// ※影響しない
-        /// </remarks>
-        public ThreadPriority Priority { get; set; }
+		/// <summary>
+		/// タイマーのタスク優先度
+		/// </summary>
+		/// <remarks>
+		/// ※影響しない
+		/// </remarks>
+		public ThreadPriority Priority { get; set; }
 
-        #endregion
+		#endregion
 
-        #region Constructors
+		#region Constructors
 
-        /// <summary>
-        /// staticコンストラクタ
-        /// </summary>
-        static ThreadingTimer()
-        {
-            int minWorkerThread, minCompletionPortThread;
+		/// <summary>
+		/// staticコンストラクタ
+		/// </summary>
+		static ThreadingTimer() {
+			ThreadPool.GetMinThreads( out var minWorkerThread, out var minCompletionPortThread );
+			ThreadPool.SetMinThreads( DEFAULT_THREAD_NUM, minCompletionPortThread );
+		}
 
-            ThreadPool.GetMinThreads(out minWorkerThread, out minCompletionPortThread);
-            ThreadPool.SetMinThreads(DEFAULT_THREAD_NUM, minCompletionPortThread);
-        }
+		/// <summary>
+		/// コンストラクタ
+		/// </summary>
+		/// <param name="id"></param>
+		/// <param name="interval"></param>
+		/// <param name="priority"></param>
+		internal ThreadingTimer( string id = "",
+							  int interval = 1000,
+							  ThreadPriority priority = ThreadPriority.Normal ) {
+			Id = id;
+			_interval = interval;
+			Priority = priority;
+			_isRunning = false;
 
-        /// <summary>
-        /// コンストラクタ
-        /// </summary>
-        /// <param name="id"></param>
-        /// <param name="interval"></param>
-        /// <param name="priority"></param>
-        internal ThreadingTimer(string id = "",
-                              int interval = 1000,
-                              ThreadPriority priority = ThreadPriority.Normal)
-        {
-            Id = id;
-            _interval = interval;
-            Priority = priority;
-            _isRunning = false;
+			_timer = new ThTimer( new TimerCallback( Callback ) );
 
-            _timer = new ThTimer(new TimerCallback(Callback));
+			_stopwatch = new Stopwatch();
+		}
 
-            _stopwatch = new Stopwatch();
-        }
+		#endregion
 
-        #endregion
+		#region Public Methods
 
-        #region Public Methods
+		/// <summary>
+		/// タイマー開始
+		/// </summary>
+		public void Start() {
+			_stopwatch.Reset();
+			_stopwatch.Start();
 
-        /// <summary>
-        /// タイマー開始
-        /// </summary>
-        public void Start()
-        {
-            _stopwatch.Reset();
-            _stopwatch.Start();
+			_isRunning = true;
+			_timer.Change( 0, Interval );
+		}
 
-            _isRunning = true;
-            _timer.Change(0, Interval);
-        }
+		/// <summary>
+		/// タイマー停止
+		/// </summary>
+		public void Stop() {
+			_stopwatch.Stop();
+			_timer.Change( Timeout.Infinite, Timeout.Infinite );
 
-        /// <summary>
-        /// タイマー停止
-        /// </summary>
-        public void Stop()
-        {
-            _stopwatch.Stop();
-            _timer.Change(Timeout.Infinite, Timeout.Infinite);
-            
-            _isRunning = false;
-        }
+			_isRunning = false;
+		}
 
-        #endregion
+		/// <summary>
+		/// タイマー再起動
+		/// </summary>
+		public void Restart() {
+			// Not Implemented
+		}
 
-        #region Private Methods
+		#endregion
 
-        /// <summary>
-        /// タイマーコールバックメソッド
-        /// </summary>
-        /// <param name="parameter"></param>
-        private void Callback(object parameter)
-        {
-            _stopwatch.Stop();
+		#region Private Methods
 
-            Tick(this, _stopwatch.Elapsed);
+		/// <summary>
+		/// タイマーコールバックメソッド
+		/// </summary>
+		/// <param name="parameter"></param>
+		private void Callback( object parameter ) {
+			_stopwatch.Stop();
 
-            _stopwatch.Reset();
-            _stopwatch.Start();
-        }
+			Tick( this, _stopwatch.Elapsed );
 
-        #endregion
-    }
+			_stopwatch.Reset();
+			_stopwatch.Start();
+		}
+
+		#endregion
+	}
 }
