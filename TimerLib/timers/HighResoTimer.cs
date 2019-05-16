@@ -1,218 +1,243 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace TimerLib.timers
 {
-    /// <summary>
-    /// 高分解能タイマー
-    /// </summary>
-    /// <remarks>
-    /// .NETのStopwatchを使用したタイマー
-    /// </remarks>
-    internal class HighResoTimer : ICustomTimer
-    {
-        #region Events
+	/// <summary>
+	/// 高分解能タイマー
+	/// </summary>
+	/// <remarks>
+	/// .NETのStopwatchを使用したタイマー
+	/// </remarks>
+	internal class HighResoTimer : ICustomTimer
+	{
+		#region Events
 
-        /// <summary>
-        /// Tickイベント
-        /// </summary>
-        public event Action<object, TimeSpan> Tick = (sender, elapsed) => { };
+		/// <summary>
+		/// Tickイベント
+		/// </summary>
+		public event Action<object, TimeSpan> Tick = ( sender, elapsed ) => { };
 
-        #endregion
+		#endregion
 
-        #region Constants
+		#region Constants
 
-        /// <summary>
-        /// スレッドプールに生成しておくスレッド数
-        /// </summary>
-        /// <remarks>
-        /// ※これにより複数タイマー生成、
-        /// 　起動時のタスク生成が軽くなる
-        /// </remarks>
-        private static readonly int DEFAULT_THREAD_NUM = 8;
+		/// <summary>
+		/// スレッドプールに生成しておくスレッド数
+		/// </summary>
+		/// <remarks>
+		/// ※これにより複数タイマー生成、
+		/// 　起動時のタスク生成が軽くなる
+		/// </remarks>
+		private static readonly int DEFAULT_THREAD_NUM = 8;
 
-        /// <summary>
-        /// インターバルチェック用ループ内スリープ(msec)
-        /// </summary>
-        /// <remarks>
-        /// ※0が理想だが、GUIがフリーズする
-        /// </remarks>
-        private static readonly int TIME_CHECK_INTERVAL = 1;
+		/// <summary>
+		/// インターバルチェック用ループ内スリープ(msec)
+		/// </summary>
+		/// <remarks>
+		/// ※0が理想だが、GUIがフリーズする
+		/// </remarks>
+		private static readonly int TIME_CHECK_INTERVAL = 1;
 
-        /// <summary>
-        /// 誤差調整用
-        /// </summary>
-        private static readonly double MSEC_FOR_DELAY = 0.8;
+		/// <summary>
+		/// 誤差調整用
+		/// </summary>
+		private static readonly double MSEC_FOR_DELAY = 0.8;
 
-        #endregion
+		#endregion
 
-        #region Fields
+		#region Fields
 
-        /// <summary>
-        /// 内部Stopwatchオブジェクト
-        /// </summary>
-        private Stopwatch _stopwatch;
+		/// <summary>
+		/// 内部Stopwatchオブジェクト
+		/// </summary>
+		private Stopwatch _stopwatch;
 
-        /// <summary>
-        /// タスクキャンセル用トークンソース
-        /// </summary>
-        private CancellationTokenSource _tokenSource;
-        
-        #endregion
+		/// <summary>
+		/// タスクキャンセル用トークンソース
+		/// </summary>
+		private CancellationTokenSource SyncTokenSource {
+			get { lock ( _lockOfTokenSource ) { return _tokenSource; } }
+			set { lock ( _lockOfTokenSource ) { _tokenSource = value; } }
+		}
+		private CancellationTokenSource _tokenSource;
+		private readonly object _lockOfTokenSource = new object();
 
-        #region Properties
+		#endregion
 
-        /// <summary>
-        /// タイマーID
-        /// </summary>
-        public string Id { get; set; }
-        
-        /// <summary>
-        /// タイマーインターバル
-        /// </summary>
-        public int Interval
-        {
-            get 
-            {
-                lock (_syncInterval)
-                {
-                    return _interval;
-                }
-            }
-            set
-            {
-                lock (_syncInterval)
-                {
-                    _interval = value;
-                }
-            } 
-        }
-        private int _interval;
-        private object _syncInterval = new object();
+		#region Properties
 
-        /// <summary>
-        /// PCが高分解能タイマーを使用しているか
-        /// </summary>
-        public bool UseHighReso { get { return Stopwatch.IsHighResolution; } }
+		/// <summary>
+		/// タイマーID
+		/// </summary>
+		public string Id { get; set; }
 
-        /// <summary>
-        /// タイマーのタスク優先度
-        /// </summary>
-        public ThreadPriority Priority { get; set; }
+		/// <summary>
+		/// タイマーインターバル
+		/// </summary>
+		public int Interval {
+			get {
+				lock ( _syncInterval ) {
+					return _interval;
+				}
+			}
+			set {
+				lock ( _syncInterval ) {
+					_interval = value;
+				}
+			}
+		}
+		private int _interval;
+		private readonly object _syncInterval = new object();
 
-        #endregion
+		/// <summary>
+		/// PCが高分解能タイマーを使用しているか
+		/// </summary>
+		public bool UseHighReso => Stopwatch.IsHighResolution;
 
-        #region Constructors
+		/// <summary>
+		/// タイマーのタスク優先度
+		/// </summary>
+		public ThreadPriority Priority { get; set; }
 
-        /// <summary>
-        /// staticコンストラクタ
-        /// </summary>
-        static HighResoTimer()
-        {
-            int minWorkerThread, minCompletionPortThread;
-            
-            ThreadPool.GetMinThreads(out minWorkerThread, out minCompletionPortThread);
-            ThreadPool.SetMinThreads(DEFAULT_THREAD_NUM, minCompletionPortThread);
-        }
+		#endregion
 
-        /// <summary>
-        /// コンストラクタ
-        /// </summary>
-        /// <param name="id"></param>
-        /// <param name="interval"></param>
-        /// <param name="priority"></param>
-        internal HighResoTimer(string id = "", 
-                                      int interval = 1000, 
-                                      ThreadPriority priority = ThreadPriority.Normal)
-        {
-            Id = id;
-            _interval = interval;
-            Priority = priority;
+		#region Constructors
 
-            _stopwatch = new Stopwatch();
-        }
+		/// <summary>
+		/// staticコンストラクタ
+		/// </summary>
+		static HighResoTimer() {
+			ThreadPool.GetMinThreads( out var minWorkerThread, out var minCompletionPortThread );
+			ThreadPool.SetMinThreads( DEFAULT_THREAD_NUM, minCompletionPortThread );
+		}
 
-        #endregion
+		/// <summary>
+		/// コンストラクタ
+		/// </summary>
+		/// <param name="id"></param>
+		/// <param name="interval"></param>
+		/// <param name="priority"></param>
+		internal HighResoTimer( string id = "",
+									  int interval = 1000,
+									  ThreadPriority priority = ThreadPriority.Normal ) {
+			Id = id;
+			_interval = interval;
+			Priority = priority;
 
-        #region Public Methods
+			_stopwatch = new Stopwatch();
+		}
 
-        /// <summary>
-        /// タイマー開始
-        /// </summary>
-        public void Start()
-        {
-            if (_tokenSource == null) _tokenSource = new CancellationTokenSource();
-            var token = _tokenSource.Token;
+		#endregion
 
-            // タスク生成(スレッドプールから取得)
-            Task.Factory.StartNew(() =>
-            {
-                // タイマータスクの優先度を設定
-                Thread.CurrentThread.Priority = Priority;
+		#region Public Methods
 
-                // タイマー計測
-                while (true)
-                {
-                    // ストップウォッチのリセットと開始
-                    _stopwatch.Reset();
-                    _stopwatch.Start();
+		/// <summary>
+		/// タイマー開始
+		/// </summary>
+		public void Start() {
+			var token = default( CancellationToken );
 
-                    // キャンセル要求チェック
-                    if (_tokenSource.IsCancellationRequested) return;
+			lock ( _lockOfTokenSource ) {
+				if ( _tokenSource == null || _tokenSource.IsCancellationRequested ) {
+					_tokenSource?.Dispose();
+					_tokenSource = new CancellationTokenSource();
+				}
+				token = _tokenSource.Token;
+			}
 
-                    // 経過時間のチェック
-                    while (_stopwatch.Elapsed < TimeSpan.FromMilliseconds(Interval - MSEC_FOR_DELAY))
-                    {
-                        // ※ここの処理をどうするか
-                        Thread.Sleep(TIME_CHECK_INTERVAL);
+			// タスク生成(スレッドプールから取得)
+			Task.Factory.StartNew( () => {
+				// タイマータスクの優先度を設定
+				Thread.CurrentThread.Priority = Priority;
 
-                        // キャンセル要求チェック
-                        if (_tokenSource.IsCancellationRequested) return;
-                    }
+				// タイマー計測
+				while ( true ) {
+					// ストップウォッチのリセットと開始
+					_stopwatch.Reset();
+					_stopwatch.Start();
 
-                    // ストップウォッチ停止
-                    _stopwatch.Stop();
+					// キャンセル要求チェック
+					if ( SyncTokenSource?.IsCancellationRequested ?? true ) {
+						return;
+					}
 
-                    // キャンセル要求チェック
-                    if (_tokenSource.IsCancellationRequested) return;
+					// 経過時間のチェック
+					while ( _stopwatch.Elapsed < TimeSpan.FromMilliseconds( Interval - MSEC_FOR_DELAY ) ) {
+						// ※ここの処理をどうするか
+						Thread.Sleep( TIME_CHECK_INTERVAL );
 
-                    // Tickイベント発行
-                    Tick(this, _stopwatch.Elapsed);
+						// キャンセル要求チェック
+						if ( SyncTokenSource?.IsCancellationRequested ?? true ) {
+							return;
+						}
+					}
 
-                    // キャンセル要求チェック
-                    if (_tokenSource.IsCancellationRequested) return;
-                }
+					// ストップウォッチ停止
+					_stopwatch.Stop();
 
-            }, token).ContinueWith(t =>
-            {
-                //
-                // タスク完了後継続処理
-                // (キャンセル時)
-                //
+					// キャンセル要求チェック
+					if ( SyncTokenSource?.IsCancellationRequested ?? true ) {
+						return;
+					}
 
-                // トークンソースの解放
-                _tokenSource.Dispose();
-                _tokenSource = null;
+					// Tickイベント発行
+					Tick( this, _stopwatch.Elapsed );
 
-                if (_stopwatch != null && _stopwatch.IsRunning)
-                {
-                    // 念のためストップウォッチ停止
-                    _stopwatch.Stop();
-                }
-            });
-        }
+					// キャンセル要求チェック
+					if ( SyncTokenSource?.IsCancellationRequested ?? true ) {
+						return;
+					}
+				}
 
-        /// <summary>
-        /// タイマー停止
-        /// </summary>
-        public void Stop()
-        {
-            // タスクキャンセル要求
-            if (_tokenSource != null) _tokenSource.Cancel();
-        }
+			}, token ).ContinueWith( task => {
+				//
+				// タスク完了後継続処理
+				// (キャンセル時)
+				//
+				if ( task.IsCanceled ) {
 
-        #endregion
-    }
+					lock ( _lockOfTokenSource ) {
+
+						if ( _tokenSource != null &&
+							 _tokenSource.IsCancellationRequested ) {
+							// トークンソースの解放
+							_tokenSource.Dispose();
+							_tokenSource = null;
+						}
+
+						if ( _stopwatch != null && _stopwatch.IsRunning ) {
+							// 念のためストップウォッチ停止
+							_stopwatch.Stop();
+						}
+					}
+				}
+			} );
+		}
+
+		/// <summary>
+		/// タイマー停止
+		/// </summary>
+		public void Stop() {
+			lock ( _lockOfTokenSource ) {
+				// タスクキャンセル要求
+				if ( SyncTokenSource != null ) {
+					SyncTokenSource.Cancel();
+				}
+			}
+		}
+
+		/// <summary>
+		/// タイマー再起動
+		/// </summary>
+		public void Restart() {
+
+			Stop();
+			Start();
+		}
+
+		#endregion
+	}
 }
